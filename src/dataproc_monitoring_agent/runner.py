@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import time
 from typing import Optional
 
@@ -24,17 +25,29 @@ def run_once(prompt: Optional[str] = None, *, model: Optional[str] = None) -> st
     """Run a single monitoring cycle and return the final report string."""
 
     agent = build_dataproc_monitoring_agent(model=model)
+    session_service = InMemorySessionService()
+    artifact_service = InMemoryArtifactService()
+
     runner = Runner(
         app_name="dataproc-monitor",
         agent=agent,
-        session_service=InMemorySessionService(),
-        artifact_service=InMemoryArtifactService(),
+        session_service=session_service,
+        artifact_service=artifact_service,
     )
 
     session_id = f"run-{int(time.time())}"
+
+    asyncio.run(
+        session_service.create_session(
+            app_name="dataproc-monitor",
+            user_id="operator",
+            session_id=session_id,
+        )
+    )
+
     request = types.Content(
         role="user",
-        parts=[types.Part.from_text(prompt or _DEFAULT_PROMPT)],
+        parts=[types.Part(text=prompt or _DEFAULT_PROMPT)],
     )
 
     final_response: str = ""
