@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from google.api_core import exceptions
 try:
@@ -75,6 +75,7 @@ def fetch_cluster_metrics(
     )
 
 
+
 def fetch_job_metrics(
     config: MonitoringConfig,
     *,
@@ -86,18 +87,24 @@ def fetch_job_metrics(
     """Pull Dataproc job metrics from Cloud Monitoring."""
 
     metric_types = tuple(metric_types or _JOB_METRICS)
-    filter_parts = [f"metric.type = \"{metric_type}\"" for metric_type in metric_types]
-    filter_expr = " OR ".join(filter_parts)
-    filter_expr = (
-        f"({filter_expr}) AND resource.type = \"cloud_dataproc_job\" "
-        f"AND metric.label.\"job_id\" = \"{job_id}\""
-    )
-    return _list_time_series(
-        config,
-        filter_expr=filter_expr,
-        start_time=start_time,
-        end_time=end_time,
-    )
+
+    results: list[MetricSeries] = []
+    for metric_type in metric_types:
+        filter_expr = (
+            f"metric.type = "{metric_type}" "
+            f"AND resource.type = "cloud_dataproc_job" "
+            f"AND metric.label."job_id" = "{job_id}""
+        )
+        results.extend(
+            _list_time_series(
+                config,
+                filter_expr=filter_expr,
+                start_time=start_time,
+                end_time=end_time,
+            )
+        )
+
+    return results
 
 
 def _list_time_series(
