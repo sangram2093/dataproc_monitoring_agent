@@ -174,16 +174,34 @@ def list_jobs_within_window(
     client = dataproc_v1.JobControllerClient(
         client_options={"api_endpoint": f"{config.region}-dataproc.googleapis.com:443"}
     )
-    filter_parts = [
-        f'submitTime >= "{start_time.astimezone(timezone.utc).isoformat()}"',
-        f'submitTime <= "{end_time.astimezone(timezone.utc).isoformat()}"',
-    ]
     request = dataproc_v1.ListJobsRequest(
         project_id=config.project_id,
         region=config.region,
-        filter=" AND ".join(filter_parts),
     )
+
+    window_start = start_time.astimezone(timezone.utc)
+    window_end = end_time.astimezone(timezone.utc)
+
     jobs: List[JobSnapshot] = []
     for job in client.list_jobs(request=request):
+        submit_timestamp = _job_submission_time(job)
+        if submit_timestamp:
+            submit_timestamp = submit_timestamp.astimezone(timezone.utc)
+            if submit_timestamp < window_start:
+                continue
+            if submit_timestamp > window_end:
+                continue
         jobs.append(JobSnapshot.from_api(config.project_id, config.region, job))
+
     return jobs
+
+
+
+def _job_submission_time(job: Job) -> Optional[datetime]:
+    """Best-effort extraction of job submission timestamp."""
+
+    if job.status and job.status.state_start_time:
+        return job.status.state_start_time
+    if job.status_history:
+        return job.status_history[0].state_start_time
+    return None
