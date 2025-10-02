@@ -13,6 +13,7 @@ from google.cloud.dataproc_v1.types import Job
 from ..config.settings import MonitoringConfig
 
 
+
 @dataclass(slots=True)
 class ClusterSnapshot:
     """Serializable view of a Dataproc cluster at ingestion time."""
@@ -30,51 +31,57 @@ class ClusterSnapshot:
     update_time: Optional[str]
 
     @classmethod
+    def from_api(cls, project_id: str, region: str, cluster: Cluster) -> "ClusterSnapshot":
+        metrics: dict[str, Any] = {}
+        if getattr(cluster, 'metrics', None):
+            metrics = {
+                "hdfs_metrics": dict(cluster.metrics.hdfs_metrics),
+                "yarn_metrics": dict(cluster.metrics.yarn_metrics),
+            }
 
-@classmethod
-def from_api(cls, project_id: str, region: str, cluster: Cluster) -> "ClusterSnapshot":
-    metrics = {}
-    if cluster.metrics:
-        metrics = {
-            "hdfs_metrics": dict(cluster.metrics.hdfs_metrics),
-            "yarn_metrics": dict(cluster.metrics.yarn_metrics),
-        }
+        status = getattr(cluster, 'status', None)
+        status_state = getattr(status, 'state', None)
+        status_state_name = status_state.name if status_state else "UNKNOWN"
+        status_start_time = getattr(status, 'state_start_time', None)
 
-    status = cluster.status if getattr(cluster, "status", None) else None
-    status_history = getattr(status, "history", None) if status else None
-    first_history_entry = None
-    if status_history:
-        try:
-            first_history_entry = status_history[0]
-        except (IndexError, TypeError):
-            first_history_entry = None
+        history = getattr(status, 'history', None)
+        history_entry = None
+        if history:
+            try:
+                history_entry = history[0]
+            except (TypeError, IndexError):
+                history_entry = None
 
-    status_state = getattr(status, "state", None)
-    status_state_name = status_state.name if status_state else "UNKNOWN"
-    status_start_time = getattr(status, "state_start_time", None)
+        create_time = _to_rfc3339(getattr(history_entry, 'state_start_time', None))
+        update_time = _to_rfc3339(status_start_time)
 
-    return cls(
-        project_id=project_id,
-        region=region,
-        cluster_name=cluster.cluster_name,
-        uuid=cluster.cluster_uuid,
-        status=status_state_name,
-        software_config={
-            "image_version": cluster.config.software_config.image_version,
-            "optional_components": list(cluster.config.software_config.optional_components),
-            "properties": dict(cluster.config.software_config.properties),
-        }
-        if cluster.config and cluster.config.software_config
-        else {},
-        metrics=metrics,
-        labels=dict(cluster.labels),
-        cluster_uuid=cluster.cluster_uuid or None,
-        create_time=_to_rfc3339(getattr(first_history_entry, "state_start_time", None)),
-        update_time=_to_rfc3339(status_start_time),
-    )
+        software_config: dict[str, Any] = {}
+        if getattr(cluster, 'config', None) and getattr(cluster.config, 'software_config', None):
+            soft_cfg = cluster.config.software_config
+            software_config = {
+                "image_version": soft_cfg.image_version,
+                "optional_components": list(soft_cfg.optional_components),
+                "properties": dict(soft_cfg.properties),
+            }
+
+        return cls(
+            project_id=project_id,
+            region=region,
+            cluster_name=cluster.cluster_name,
+            uuid=cluster.cluster_uuid,
+            status=status_state_name,
+            software_config=software_config,
+            metrics=metrics,
+            labels=dict(cluster.labels),
+            cluster_uuid=cluster.cluster_uuid or None,
+            create_time=create_time,
+            update_time=update_time,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a BigQuery friendly payload."""
         return asdict(self)
+
 
 
 @dataclass(slots=True)
