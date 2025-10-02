@@ -148,6 +148,8 @@ def _list_time_series(
                     points=points,
                 )
             )
+    except exceptions.NotFound:
+        return []
     except exceptions.GoogleAPICallError as exc:
         raise RuntimeError(
             f"Failed to query Monitoring API for filter: {filter_expr}: {exc}"
