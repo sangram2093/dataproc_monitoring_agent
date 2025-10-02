@@ -129,9 +129,16 @@ def build_performance_memory(
     if tool_context is not None:
         ingestion_payload = tool_context.state.get("dataproc_ingestion")
     if ingestion_payload is None:
-        raise ValueError(
-            "No ingestion payload found. Run ingest_dataproc_signals first."
+        message = (
+            "No Dataproc signals are cached yet. Run ingest_dataproc_signals before "
+            "building performance memory."
         )
+        return {
+            "persisted_rows": 0,
+            "dry_run": config.dry_run,
+            "has_anomalies": False,
+            "message": message,
+        }
 
     ensure_performance_table(config)
 
@@ -187,9 +194,12 @@ def generate_dataproc_report(
         facts_payload = tool_context.state.get("dataproc_facts")
 
     if not facts_payload:
-        raise ValueError(
-            "No persisted Dataproc facts are available. Run build_performance_memory first."
+        report = (
+            "No Dataproc facts are cached yet. Run build_performance_memory before requesting a report."
         )
+        if tool_context is not None:
+            tool_context.state["dataproc_report"] = report
+        return {"report": report}
 
     report = build_status_report(
         [
@@ -323,3 +333,4 @@ def _compute_duration(start_iso: Optional[str], end_iso: Optional[str]) -> float
     if not end.tzinfo:
         end = end.replace(tzinfo=timezone.utc)
     return max((end - start).total_seconds(), 0.0)
+
