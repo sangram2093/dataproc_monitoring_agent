@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 from google.api_core import exceptions
+from google.api_core.exceptions import NotFound, Forbidden
 from google.cloud import bigquery
 
 from ..config.settings import MonitoringConfig
@@ -60,29 +61,37 @@ _TABLE_SCHEMA = [
 
 
 def ensure_performance_table(config: MonitoringConfig) -> None:
-    """Create the backing dataset & table when they do not yet exist."""
+    """Verify the performance dataset/table exist; raise if they do not."""
 
     client = bigquery.Client(project=config.project_id)
 
     dataset_ref = bigquery.DatasetReference(config.project_id, config.bq_dataset)
     try:
         client.get_dataset(dataset_ref)
-    except exceptions.NotFound:
-        dataset = bigquery.Dataset(dataset_ref)
-        if config.bq_location:
-            dataset.location = config.bq_location
-        client.create_dataset(dataset)
+    except NotFound as exc:
+        raise RuntimeError(
+            f"BigQuery dataset '{config.bq_dataset}' not found in project {config.project_id}. "
+            "Create it manually before running the monitoring pipeline."
+        ) from exc
+    except Forbidden as exc:
+        raise RuntimeError(
+            "Insufficient permissions to read BigQuery dataset metadata. "
+            "Grant bigquery.datasets.get on the dataset or run with DATAPROC_DRY_RUN=true."
+        ) from exc
 
     table_ref = dataset_ref.table(config.bq_table)
     try:
         client.get_table(table_ref)
-    except exceptions.NotFound:
-        table = bigquery.Table(table_ref, schema=_TABLE_SCHEMA)
-        table.time_partitioning = bigquery.TimePartitioning(
-            type_=bigquery.TimePartitioningType.DAY,
-            field="ingest_date",
-        )
-        client.create_table(table)
+    except NotFound as exc:
+        raise RuntimeError(
+            f"BigQuery table '{config.bq_dataset}.{config.bq_table}' is missing. "
+            "Create it with the documented schema before running the monitoring pipeline."
+        ) from exc
+    except Forbidden as exc:
+        raise RuntimeError(
+            "Insufficient permissions to access the BigQuery table. "
+            "Grant bigquery.tables.get on the table or run with DATAPROC_DRY_RUN=true."
+        ) from exc
 
 
 def insert_daily_facts(
