@@ -1,0 +1,20 @@
+[
+  {"name": "ingest_date", "type": "DATE", "mode": "REQUIRED"},
+  {"name": "ingest_timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
+  {"name": "project_id", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "region", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "cluster_name", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "job_id", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "job_type", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "job_state", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "job_start_time", "type": "TIMESTAMP", "mode": "NULLABLE"},
+  {"name": "job_end_time", "type": "TIMESTAMP", "mode": "NULLABLE"},
+  {"name": "duration_seconds", "type": "FLOAT", "mode": "NULLABLE"},
+  {"name": "yarn_application_ids", "type": "STRING", "mode": "REPEATED"},
+  {"name": "cluster_metrics", "type": "JSON", "mode": "NULLABLE"},
+  {"name": "job_metrics", "type": "JSON", "mode": "NULLABLE"},
+  {"name": "driver_log_excerpt", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "yarn_log_excerpt", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "spark_event_snippet", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "anomaly_flags", "type": "JSON", "mode": "NULLABLE"}
+]
