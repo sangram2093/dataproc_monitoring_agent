@@ -9,7 +9,7 @@ from typing import Iterable
 from google.api_core import exceptions
 try:
     from google.cloud import monitoring_v3
-from google.protobuf.timestamp_pb2 import Timestamp
+    from google.protobuf.timestamp_pb2 import Timestamp
 except ImportError as exc:  # pragma: no cover - dependency optional at import time
     monitoring_v3 = None
     _IMPORT_ERROR = exc
