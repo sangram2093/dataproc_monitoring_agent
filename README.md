@@ -81,7 +81,18 @@ print(report)
 
 ### BigQuery schema
 
-`repositories/bigquery_repository.DataprocFact` documents the persisted schema. The helper automatically creates the dataset/table (time partitioned by `ingest_date`) if missing.
+`repositories/bigquery_repository.DataprocFact` documents the persisted schema.
+
+**BigQuery setup (manual)**
+
+The agent only verifies the dataset/table and will not create them automatically. Before running the pipeline:
+
+1. Create the dataset `DATAPROC_BQ_DATASET` in project `DATAPROC_PROJECT_ID` (example: `bq --project_id=$Env:DATAPROC_PROJECT_ID mk --location=$Env:DATAPROC_BQ_LOCATION $Env:DATAPROC_BQ_DATASET`).
+2. Create the table `DATAPROC_BQ_DATASET.DATAPROC_BQ_TABLE` using the schema documented in `repositories/bigquery_repository.DataprocFact` (for example: `bq mk --table ${Env:DATAPROC_PROJECT_ID}:$Env:DATAPROC_BQ_DATASET.$Env:DATAPROC_BQ_TABLE schemas/dataproc_fact.json`).
+3. Grant the runtime service account at least `bigquery.tables.get`, `bigquery.tables.list`, and `bigquery.dataEditor` on the table.
+
+If the dataset/table are missing or inaccessible the agent raises a readable error and no creation attempt is made.
+ The helper automatically creates the dataset/table (time partitioned by `ingest_date`) if missing.
 
 ## Testing
 
