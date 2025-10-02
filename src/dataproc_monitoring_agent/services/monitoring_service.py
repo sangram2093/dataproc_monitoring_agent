@@ -9,6 +9,7 @@ from typing import Iterable
 from google.api_core import exceptions
 try:
     from google.cloud import monitoring_v3
+from google.protobuf.timestamp_pb2 import Timestamp
 except ImportError as exc:  # pragma: no cover - dependency optional at import time
     monitoring_v3 = None
     _IMPORT_ERROR = exc
@@ -159,7 +160,7 @@ def _extract_value(value: monitoring_v3.types.TypedValue) -> float:
 def _to_timestamp(moment: datetime) -> monitoring_v3.Timestamp:
     if not moment.tzinfo:
         moment = moment.replace(tzinfo=timezone.utc)
-    ts = monitoring_v3.Timestamp()
+    ts = Timestamp()
     ts.FromDatetime(moment.astimezone(timezone.utc))
     return ts
 
