@@ -37,21 +37,16 @@ PY
 python - <<'PY'
 from dataproc_monitoring_agent.tools import dataproc_pipeline
 
-class DummyToolContext:
+class DummyCtx:
     def __init__(self):
         self.state = {}
 
-ctx = DummyToolContext()
-
-ingest = dataproc_pipeline.ingest_dataproc_signals(tool_context=ctx)
-print("Ingestion:", ingest)
-
-memory = dataproc_pipeline.build_performance_memory(tool_context=ctx)
-print("Build memory:", memory)
-
-report = dataproc_pipeline.generate_dataproc_report(tool_context=ctx)
-print("Report:", report["report"])
+ctx = DummyCtx()
+print("Ingestion:", dataproc_pipeline.ingest_dataproc_signals(tool_context=ctx))
+print("Build:", dataproc_pipeline.build_performance_memory(tool_context=ctx))
+print("Report:", dataproc_pipeline.generate_dataproc_report(tool_context=ctx)["report"])
 PY
+
 
 --=================
 gcloud dataproc jobs list \
