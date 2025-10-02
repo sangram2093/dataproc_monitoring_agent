@@ -30,37 +30,48 @@ class ClusterSnapshot:
     update_time: Optional[str]
 
     @classmethod
-    def from_api(cls, project_id: str, region: str, cluster: Cluster) -> "ClusterSnapshot":
-        metrics = {}
-        if cluster.metrics:
-            metrics = {
-                "hdfs_metrics": dict(cluster.metrics.hdfs_metrics),
-                "yarn_metrics": dict(cluster.metrics.yarn_metrics),
-            }
-        return cls(
-            project_id=project_id,
-            region=region,
-            cluster_name=cluster.cluster_name,
-            uuid=cluster.cluster_uuid,
-            status=cluster.status.state.name if cluster.status else "UNKNOWN",
-            software_config={
-                "image_version": cluster.config.software_config.image_version,
-                "optional_components": list(cluster.config.software_config.optional_components),
-                "properties": dict(cluster.config.software_config.properties),
-            }
-            if cluster.config and cluster.config.software_config
-            else {},
-            metrics=metrics,
-            labels=dict(cluster.labels),
-            cluster_uuid=cluster.cluster_uuid or None,
-            create_time=_to_rfc3339(cluster.status.history[0].state_start_time)
-            if cluster.status and cluster.status.history
-            else None,
-            update_time=_to_rfc3339(cluster.status.state_start_time)
-            if cluster.status
-            else None,
-        )
 
+@classmethod
+def from_api(cls, project_id: str, region: str, cluster: Cluster) -> "ClusterSnapshot":
+    metrics = {}
+    if cluster.metrics:
+        metrics = {
+            "hdfs_metrics": dict(cluster.metrics.hdfs_metrics),
+            "yarn_metrics": dict(cluster.metrics.yarn_metrics),
+        }
+
+    status = cluster.status if getattr(cluster, "status", None) else None
+    status_history = getattr(status, "history", None) if status else None
+    first_history_entry = None
+    if status_history:
+        try:
+            first_history_entry = status_history[0]
+        except (IndexError, TypeError):
+            first_history_entry = None
+
+    status_state = getattr(status, "state", None)
+    status_state_name = status_state.name if status_state else "UNKNOWN"
+    status_start_time = getattr(status, "state_start_time", None)
+
+    return cls(
+        project_id=project_id,
+        region=region,
+        cluster_name=cluster.cluster_name,
+        uuid=cluster.cluster_uuid,
+        status=status_state_name,
+        software_config={
+            "image_version": cluster.config.software_config.image_version,
+            "optional_components": list(cluster.config.software_config.optional_components),
+            "properties": dict(cluster.config.software_config.properties),
+        }
+        if cluster.config and cluster.config.software_config
+        else {},
+        metrics=metrics,
+        labels=dict(cluster.labels),
+        cluster_uuid=cluster.cluster_uuid or None,
+        create_time=_to_rfc3339(getattr(first_history_entry, "state_start_time", None)),
+        update_time=_to_rfc3339(status_start_time),
+    )
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a BigQuery friendly payload."""
         return asdict(self)
