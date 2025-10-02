@@ -1,0 +1,19 @@
+# Point at your project/dataset/table, e.g.
+PROJECT="$DATAPROC_PROJECT_ID"
+DATASET="$DATAPROC_BQ_DATASET"
+TABLE="$DATAPROC_BQ_TABLE"
+
+# Row count
+bq --project_id="$PROJECT" query \
+  --use_legacy_sql=false \
+  "SELECT COUNT(*) AS row_count
+     FROM \`$PROJECT.$DATASET.$TABLE\`"
+
+# Last few ingestions (adjust LIMIT)
+bq --project_id="$PROJECT" query \
+  --use_legacy_sql=false \
+  "SELECT ingest_timestamp, job_id, job_state, has_issues
+     FROM \`$PROJECT.$DATASET.$TABLE\`,
+     UNNEST(ARRAY[anomaly_flags.has_issues]) has_issues
+     ORDER BY ingest_timestamp DESC
+     LIMIT 10"
