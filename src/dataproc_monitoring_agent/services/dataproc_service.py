@@ -84,6 +84,7 @@ class ClusterSnapshot:
 
 
 
+
 @dataclass(slots=True)
 class JobSnapshot:
     """High level Dataproc job execution metadata."""
@@ -91,7 +92,7 @@ class JobSnapshot:
     project_id: str
     region: str
     job_id: str
-    job_type: str
+    job_type: str | None
     cluster_name: Optional[str]
     cluster_uuid: Optional[str]
     reference: dict[str, Any]
@@ -107,65 +108,72 @@ class JobSnapshot:
     labels: dict[str, str] = field(default_factory=dict)
 
     @classmethod
+    def from_api(cls, project_id: str, region: str, job: Job) -> "JobSnapshot":
+        yarn_ids: list[str] = []
+        if getattr(job, "yarn_applications", None):
+            for app in job.yarn_applications:
+                yarn_id = getattr(app, "application_id", None) or getattr(app, "name", None)
+                if yarn_id:
+                    yarn_ids.append(yarn_id)
 
-@classmethod
-def from_api(cls, project_id: str, region: str, job: Job) -> "JobSnapshot":
-    yarn_ids: list[str] = []
-    if getattr(job, "yarn_applications", None):
-        for app in job.yarn_applications:
-            yarn_id = getattr(app, "application_id", None) or getattr(app, "name", None)
-            if yarn_id:
-                yarn_ids.append(yarn_id)
+        status_history: list[dict[str, Any]] = []
+        if getattr(job, "status_history", None):
+            for status in job.status_history:
+                status_history.append(
+                    {
+                        "state": getattr(getattr(status, "state", None), "name", None),
+                        "state_start_time": _to_rfc3339(getattr(status, "state_start_time", None)),
+                        "details": getattr(status, "details", None),
+                    }
+                )
 
-    status_history: list[dict[str, Any]] = []
-    if getattr(job, "status_history", None):
-        for status in job.status_history:
-            status_history.append(
-                {
-                    "state": getattr(getattr(status, "state", None), "name", None),
-                    "state_start_time": _to_rfc3339(getattr(status, "state_start_time", None)),
-                    "details": getattr(status, "details", None),
-                }
-            )
+        placement = job.placement or dataproc_v1.types.JobPlacement()
+        reference = job.reference or dataproc_v1.types.JobReference()
 
-    placement = job.placement or dataproc_v1.types.JobPlacement()
-    reference = job.reference or dataproc_v1.types.JobReference()
+        job_uuid = getattr(job, "job_uuid", "")
+        job_id = reference.job_id if getattr(reference, "job_id", None) else job_uuid
 
-    job_uuid = getattr(job, "job_uuid", "")
-    job_id = reference.job_id if reference and reference.job_id else job_uuid
+        status = getattr(job, "status", None)
+        job_state = getattr(getattr(status, "state", None), "name", None) if status else "UNKNOWN"
+        job_substate = (
+            getattr(getattr(status, "substate", None), "name", None)
+            if status and getattr(status, "substate", None)
+            else None
+        )
 
-    status = getattr(job, "status", None)
-    job_state = getattr(getattr(status, "state", None), "name", None) if status else "UNKNOWN"
-    job_substate = getattr(getattr(status, "substate", None), "name", None) if status and getattr(status, "substate", None) else None
+        start_time = _to_rfc3339(getattr(status, "start_time", None)) if status else None
+        end_time = _to_rfc3339(getattr(status, "end_time", None)) if status else None
+        state_ts = _to_rfc3339(getattr(status, "state_start_time", None)) if status else None
 
-    return cls(
-        project_id=project_id,
-        region=region,
-        job_id=job_id,
-        job_type=getattr(job.type_, "name", None) if getattr(job, "type_", None) else None,
-        cluster_name=getattr(placement, "cluster_name", None) or None,
-        cluster_uuid=getattr(placement, "cluster_uuid", None) or None,
-        reference={
-            "job_id": reference.job_id,
-            "project_id": reference.project_id,
-            "region": region,
-        }
-        if reference and reference.job_id
-        else {},
-        state=job_state,
-        substate=job_substate,
-        driver_output_uri=getattr(job, "driver_output_resource_uri", None),
-        driver_control_files_uri=getattr(job, "driver_control_files_uri", None),
-        start_time=_to_rfc3339(getattr(status, "start_time", None)) if status else None,
-        end_time=_to_rfc3339(getattr(status, "end_time", None)) if status else None,
-        state_timestamp=_to_rfc3339(getattr(status, "state_start_time", None)) if status else None,
-        yarn_application_ids=yarn_ids,
-        status_history=status_history,
-        labels=dict(job.labels),
-    )
+        return cls(
+            project_id=project_id,
+            region=region,
+            job_id=job_id,
+            job_type=getattr(getattr(job, "type_", None), "name", None),
+            cluster_name=getattr(placement, "cluster_name", None) or None,
+            cluster_uuid=getattr(placement, "cluster_uuid", None) or None,
+            reference={
+                "job_id": reference.job_id,
+                "project_id": reference.project_id,
+                "region": region,
+            }
+            if getattr(reference, "job_id", None)
+            else {},
+            state=job_state,
+            substate=job_substate,
+            driver_output_uri=getattr(job, "driver_output_resource_uri", None),
+            driver_control_files_uri=getattr(job, "driver_control_files_uri", None),
+            start_time=start_time,
+            end_time=end_time,
+            state_timestamp=state_ts,
+            yarn_application_ids=yarn_ids,
+            status_history=status_history,
+            labels=dict(job.labels),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
 
 
 def _to_rfc3339(timestamp: Optional[datetime]) -> Optional[str]:
