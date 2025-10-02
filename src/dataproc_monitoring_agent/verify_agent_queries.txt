@@ -17,3 +17,43 @@ bq --project_id="$PROJECT" query \
      UNNEST(ARRAY[anomaly_flags.has_issues]) has_issues
      ORDER BY ingest_timestamp DESC
      LIMIT 10"
+
+--===================
+
+python - <<'PY'
+from dataproc_monitoring_agent.tools import dataproc_pipeline
+
+ingest = dataproc_pipeline.ingest_dataproc_signals()
+print("Ingestion:", ingest)
+
+memory = dataproc_pipeline.build_performance_memory()
+print("Build memory:", memory)
+
+report = dataproc_pipeline.generate_dataproc_report()
+print("Report:", report["report"])
+PY
+
+--=================
+gcloud dataproc jobs list \
+  --project $DATAPROC_PROJECT_ID \
+  --region $DATAPROC_REGION \
+  --limit 20 \
+  --filter 'status.state!="ERROR"'
+
+--====================
+from dataproc_monitoring_agent.tools import dataproc_pipeline
+from google.adk.tools.tool_context import ToolContext  # pseudo; for manual debugging
+
+# use a dummy context dict
+class DummyContext:
+    def __init__(self):
+        self.state = {}
+
+ctx = DummyContext()
+ingest = dataproc_pipeline.ingest_dataproc_signals(tool_context=ctx)
+memory = dataproc_pipeline.build_performance_memory(tool_context=ctx)
+report = dataproc_pipeline.generate_dataproc_report(tool_context=ctx)
+
+print("Context keys:", ctx.state.keys())
+
+
