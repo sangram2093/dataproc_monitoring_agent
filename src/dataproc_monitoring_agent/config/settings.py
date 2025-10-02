@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import timedelta
 from typing import Optional
 
@@ -131,5 +131,6 @@ def load_config(overrides: Optional[dict[str, object]] = None) -> MonitoringConf
     if not overrides:
         return config
 
-    merged = {**config.__dict__, **overrides}
-    return MonitoringConfig.from_overrides(merged)
+    base = asdict(config)
+    base.update(overrides)
+    return MonitoringConfig.from_overrides(base)
