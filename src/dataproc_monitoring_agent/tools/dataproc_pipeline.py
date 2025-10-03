@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
+import json
 
 from google.adk.tools.tool_context import ToolContext
 
@@ -267,12 +268,13 @@ def _build_fact(
         baseline=baseline,
         cluster_metrics=cluster_metrics,
     )
+    fact.anomaly_flags = json.dumps(fact.anomaly_flags) if fact.anomaly_flags else None
     return fact
 
 
 def _metric_series_to_json(
     series_list: Iterable[monitoring_service.MetricSeries],
-) -> list[dict[str, Any]]:
+) -> Optional[str]:
     payload: list[dict[str, Any]] = []
     for series in series_list:
         payload.append(
@@ -287,8 +289,9 @@ def _metric_series_to_json(
                 ],
             }
         )
-    return payload
-
+    if not payload:
+        return None
+    return json.dumps(payload)
 
 def _summarize_logs(logs: Iterable[logging_service.LogLine], *, limit: int = 10) -> str | None:
     snippets: list[str] = []
