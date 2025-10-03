@@ -94,7 +94,7 @@ def fetch_job_metrics(
         filter_expr = (
             f'metric.type = "{metric_type}" '
             f'AND resource.type = "cloud_dataproc_job" '
-            f'AND metric.label."job_id" = "{job_id}"'
+            f'AND resource.label."job_id" = "{job_id}"'
         )
         results.extend(
             _list_time_series(
