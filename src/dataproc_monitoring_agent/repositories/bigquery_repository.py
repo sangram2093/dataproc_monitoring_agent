@@ -35,6 +35,31 @@ class DataprocFact:
     spark_event_snippet: str | None
     anomaly_flags: dict
 
+    def __post_init__(self) -> None:
+        if isinstance(self.cluster_metrics, str) and self.cluster_metrics:
+            try:
+                self.cluster_metrics = json.loads(self.cluster_metrics)
+            except json.JSONDecodeError:
+                self.cluster_metrics = {}
+        elif self.cluster_metrics is None:
+            self.cluster_metrics = {}
+
+        if isinstance(self.job_metrics, str) and self.job_metrics:
+            try:
+                self.job_metrics = json.loads(self.job_metrics)
+            except json.JSONDecodeError:
+                self.job_metrics = {}
+        elif self.job_metrics is None:
+            self.job_metrics = {}
+
+        if isinstance(self.anomaly_flags, str) and self.anomaly_flags:
+            try:
+                self.anomaly_flags = json.loads(self.anomaly_flags)
+            except json.JSONDecodeError:
+                self.anomaly_flags = {}
+        elif self.anomaly_flags is None:
+            self.anomaly_flags = {}
+
     def to_json(self) -> dict:
         payload = asdict(self)
         payload["cluster_metrics"] = json.dumps(payload["cluster_metrics"]) if payload["cluster_metrics"] else None
