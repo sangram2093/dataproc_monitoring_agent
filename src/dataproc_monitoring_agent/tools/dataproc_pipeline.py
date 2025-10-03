@@ -238,7 +238,7 @@ def _build_fact(
     spark_event_logs: List[spark_history_service.SparkEventLog],
     cluster_metrics: List[monitoring_service.MetricSeries],
     baselines: Dict[str, Any],
-) -> DataprocFact:
+) -> Tuple[DataprocFact, bool]:
     job_id = job.job_id or job.reference.get("job_id") or ""
     duration_seconds = _compute_duration(job.start_time, job.end_time)
 
@@ -249,7 +249,7 @@ def _build_fact(
         region=config.region,
         cluster_name=job.cluster_name or "unknown",
         job_id=job_id,
-        job_type=job.job_type,
+        job_type=job.job_type or "UNKNOWN",
         job_state=job.state,
         job_start_time=job.start_time,
         job_end_time=job.end_time,
@@ -264,18 +264,19 @@ def _build_fact(
     )
 
     baseline = baselines.get(job_id)
-    fact.anomaly_flags = synthesize_anomaly_flags(
+    anomaly_payload = synthesize_anomaly_flags(
         fact,
         baseline=baseline,
         cluster_metrics=cluster_metrics,
     )
-    fact.anomaly_flags = json.dumps(fact.anomaly_flags) if fact.anomaly_flags else None
-    return fact
+    has_issues = bool(anomaly_payload.get("has_issues")) if anomaly_payload else False
+    fact.anomaly_flags = anomaly_payload or {}
+    return fact, has_issues
 
 
 def _metric_series_to_json(
     series_list: Iterable[monitoring_service.MetricSeries],
-) -> Optional[str]:
+) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     for series in series_list:
         payload.append(
@@ -290,9 +291,7 @@ def _metric_series_to_json(
                 ],
             }
         )
-    if not payload:
-        return None
-    return json.dumps(payload)
+    return payload
 
 def _summarize_logs(logs: Iterable[logging_service.LogLine], *, limit: int = 10) -> str | None:
     snippets: list[str] = []
