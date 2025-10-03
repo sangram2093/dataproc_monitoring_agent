@@ -58,21 +58,25 @@ def fetch_cluster_metrics(
     """Pull Dataproc cluster metrics from Cloud Monitoring."""
 
     metric_types = tuple(metric_types or _CLUSTER_METRICS)
-    filter_parts = [
-        f"metric.type = \"{metric_type}\"" for metric_type in metric_types
-    ]
-    filter_expr = " OR ".join(filter_parts)
-    filter_expr = (
-        f"({filter_expr}) AND resource.type = \"cloud_dataproc_cluster\" "
-        f"AND resource.label.\"cluster_name\" = \"{cluster_name}\" "
-        f"AND resource.label.\"region\" = \"{config.region}\""
-    )
-    return _list_time_series(
-        config,
-        filter_expr=filter_expr,
-        start_time=start_time,
-        end_time=end_time,
-    )
+
+    results: list[MetricSeries] = []
+    for metric_type in metric_types:
+        filter_expr = (
+            f'metric.type = "{metric_type}" '
+            f'AND resource.type = "cloud_dataproc_cluster" '
+            f'AND resource.label."cluster_name" = "{cluster_name}" '
+            f'AND resource.label."region" = "{config.region}"'
+        )
+        results.extend(
+            _list_time_series(
+                config,
+                filter_expr=filter_expr,
+                start_time=start_time,
+                end_time=end_time,
+            )
+        )
+
+    return results
 
 
 
