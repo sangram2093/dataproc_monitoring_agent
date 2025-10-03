@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 import json
 
 from google.adk.tools.tool_context import ToolContext
@@ -151,12 +151,13 @@ def build_performance_memory(
     )
 
     facts: list[DataprocFact] = []
+    has_anomaly = False
     for job_bundle in ingestion_payload["jobs"]:
         job = job_bundle["job"]
         cluster_metrics = ingestion_payload["cluster_metrics"].get(
             job.cluster_name or "", []
         )
-        fact = _build_fact(
+        fact, fact_has_issue = _build_fact(
             config=config,
             as_of=now,
             job=job,
@@ -167,6 +168,8 @@ def build_performance_memory(
             cluster_metrics=cluster_metrics,
             baselines=baselines,
         )
+        if fact_has_issue:
+            has_anomaly = True
         facts.append(fact)
 
     insert_daily_facts(config, records=facts)
@@ -178,9 +181,7 @@ def build_performance_memory(
     return {
         "persisted_rows": len(serialized),
         "dry_run": config.dry_run,
-        "has_anomalies": any(
-            fact.anomaly_flags.get("has_issues") for fact in facts
-        ),
+        "has_anomalies": has_anomaly,
     }
 
 
@@ -336,4 +337,3 @@ def _compute_duration(start_iso: Optional[str], end_iso: Optional[str]) -> float
     if not end.tzinfo:
         end = end.replace(tzinfo=timezone.utc)
     return max((end - start).total_seconds(), 0.0)
-
