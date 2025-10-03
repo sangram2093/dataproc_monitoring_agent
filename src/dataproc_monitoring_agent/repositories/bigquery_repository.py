@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+import json
 from datetime import datetime, timezone
 from typing import Iterable
 
@@ -35,7 +36,11 @@ class DataprocFact:
     anomaly_flags: dict
 
     def to_json(self) -> dict:
-        return asdict(self)
+        payload = asdict(self)
+        payload["cluster_metrics"] = json.dumps(payload["cluster_metrics"]) if payload["cluster_metrics"] else None
+        payload["job_metrics"] = json.dumps(payload["job_metrics"]) if payload["job_metrics"] else None
+        payload["anomaly_flags"] = json.dumps(payload["anomaly_flags"]) if payload["anomaly_flags"] else None
+        return payload
 
 
 _TABLE_SCHEMA = [
