@@ -11,6 +11,7 @@ from google.cloud import logging_v2
 
 from ..config.settings import MonitoringConfig
 
+LOG_PAGE_CHUNK = 200
 
 @dataclass(slots=True)
 class LogLine:
@@ -80,22 +81,30 @@ def _iterate_logs(
     limit: int,
 ) -> Iterator[LogLine]:
     client = logging_v2.Client(project=config.project_id)
+    page_size = min(limit, LOG_PAGE_CHUNK)
+    retrieved = 0
     try:
-        for entry in client.list_entries(filter_=filter_expr, page_size=limit):
+        for entry in client.list_entries(filter_=filter_expr, page_size=page_size):
             payload_dict: dict[str, str] = {}
             if hasattr(entry, "payload") and isinstance(entry.payload, dict):
                 payload_dict = entry.payload
-            text = entry.text_payload or payload_dict.get("message", "")
+            text_payload = entry.text_payload or payload_dict.get("message", "")
             yield LogLine(
                 timestamp=entry.timestamp.isoformat() if entry.timestamp else "",
                 log_name=entry.log_name,
                 severity=entry.severity,
-                text=text,
+                text=text_payload,
                 resource_labels=dict(entry.resource.labels or {}),
                 labels=dict(entry.labels or {}),
             )
+            retrieved += 1
+            if retrieved >= limit:
+                break
+    except (exceptions.ResourceExhausted, exceptions.TooManyRequests) as exc:
+        logging.warning("Cloud Logging quota exhausted while fetching Dataproc logs: %s", exc)
+        return
     except exceptions.GoogleAPICallError as exc:
-        raise RuntimeError(f"Failed to fetch logs from Logging API: {exc}") from exc
+        raise RuntimeError("Failed to fetch logs from Logging API: {exc}".format(exc=exc)) from exc
 
 
 def _format_filter(
@@ -115,3 +124,4 @@ def _format_filter(
         f'AND timestamp<="{end_time.astimezone(timezone.utc).isoformat()}"'
     )
     return f"{template.format(**kwargs)} AND {time_clause}"
+
