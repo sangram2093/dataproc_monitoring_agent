@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""
+Read a Spark event log from GCS and print key performance metrics as JSON,
+including app-level, job-level, and stage-level summaries.
+
+Usage:
+  python read_spark_eventlog_gcs.py gs://<bucket>/events/spark-job-history/<application_id> [--project <PROJECT_ID>]
+
+Requires:
+  pip install google-cloud-storage
+"""
+
 import io, os, sys, json, gzip, math, argparse
 from typing import Any, Dict, List, Optional, Tuple
 from collections import defaultdict
@@ -35,7 +46,6 @@ def detect_project_id(cli_project: Optional[str]) -> Optional[str]:
     for k in ("GCP_PROJECT", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT"):
         v = os.getenv(k)
         if v: return v
-    # Try to read from service account JSON
     cred = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if cred and os.path.isfile(cred):
         try:
@@ -67,7 +77,7 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
     executor_peak = 0
 
     jobs: Dict[int, Dict[str, Any]] = {}
-    stages: Dict[Tuple[int, int], Dict[str, Any]] = {}
+    stages_meta: Dict[Tuple[int, int], Dict[str, Any]] = {}
     stage_task_durations: Dict[Tuple[int, int], List[int]] = defaultdict(list)
     stage_task_metrics: Dict[Tuple[int, int], Dict[str, int]] = defaultdict(lambda: {
         "tasks": 0, "failed_tasks": 0,
@@ -90,6 +100,7 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
             continue
         et = ev.get("Event")
 
+        # Application
         if et == "SparkListenerApplicationStart":
             app["app_id"] = ev.get("App ID")
             app["app_name"] = ev.get("App Name")
@@ -100,6 +111,7 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
         elif et == "SparkListenerApplicationEnd":
             app["app_end_ts"] = ev.get("Timestamp")
 
+        # Executors
         elif et == "SparkListenerExecutorAdded":
             ex_id = str(ev.get("Executor ID"))
             added_ts = ev.get("Timestamp") or ev.get("Time")
@@ -115,6 +127,7 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
             if ex_id in executors: executors[ex_id]["removed"] = removed_ts
             live_executors.discard(ex_id)
 
+        # Jobs
         elif et == "SparkListenerJobStart":
             jid = int(ev["Job ID"])
             jobs.setdefault(jid, {"job_id": jid, "name": None, "submission_ts": None, "completion_ts": None,
@@ -123,8 +136,10 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
                                   "task_time_ms": 0})
             jobs[jid]["submission_ts"] = ev.get("Submission Time")
             props = ev.get("Properties") or {}
-            if props.get("spark.job.description"): jobs[jid]["name"] = props["spark.job.description"]
-            for sid in ev.get("Stage IDs", []): jobs[jid]["stage_ids"].add(int(sid))
+            if props.get("spark.job.description"):
+                jobs[jid]["name"] = props["spark.job.description"]
+            for sid in ev.get("Stage IDs", []):
+                jobs[jid]["stage_ids"].add(int(sid))
         elif et == "SparkListenerJobEnd":
             jid = int(ev["Job ID"])
             jobs.setdefault(jid, {"job_id": jid, "name": None, "submission_ts": None, "completion_ts": None,
@@ -133,22 +148,28 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
                                   "task_time_ms": 0})
             jobs[jid]["completion_ts"] = ev.get("Completion Time")
 
+        # Stages
         elif et == "SparkListenerStageSubmitted":
             si = ev.get("Stage Info", {})
             sid = int(si.get("Stage ID"))
             att = int(si.get("Attempt ID", 0))
-            stages.setdefault((sid, att), {"stage_id": sid, "attempt": att, "name": si.get("Stage Name"),
-                                           "submission_ts": ev.get("Submission Time"), "completion_ts": None,
-                                           "num_tasks": si.get("Number of Tasks", 0)})
+            stages_meta.setdefault((sid, att), {
+                "stage_id": sid, "attempt": att, "name": si.get("Stage Name"),
+                "submission_ts": ev.get("Submission Time"), "completion_ts": None,
+                "num_tasks": si.get("Number of Tasks", 0)
+            })
         elif et == "SparkListenerStageCompleted":
             si = ev.get("Stage Info", {})
             sid = int(si.get("Stage ID"))
             att = int(si.get("Attempt ID", 0))
-            st = stages.setdefault((sid, att), {"stage_id": sid, "attempt": att, "name": si.get("Stage Name"),
-                                                "submission_ts": None, "completion_ts": None,
-                                                "num_tasks": si.get("Number of Tasks", 0)})
+            st = stages_meta.setdefault((sid, att), {
+                "stage_id": sid, "attempt": att, "name": si.get("Stage Name"),
+                "submission_ts": None, "completion_ts": None,
+                "num_tasks": si.get("Number of Tasks", 0)
+            })
             st["completion_ts"] = ev.get("Completion Time")
 
+        # Tasks
         elif et == "SparkListenerTaskEnd":
             sid = int(ev.get("Stage ID"))
             satt = int(ev.get("Stage Attempt ID", 0))
@@ -193,9 +214,9 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
 
             task_time_total_ms += run_ms
 
-    # Roll-up app totals & per-job aggregates
+    # App totals from stages
     totals = {"input":0, "shuf_r":0, "shuf_w":0, "spill_d":0, "spill_m":0, "gc":0}
-    for key, stm in stage_task_metrics.items():
+    for stm in stage_task_metrics.values():
         totals["input"] += stm["input_bytes"]
         totals["shuf_r"]+= stm["shuffle_read_bytes"]
         totals["shuf_w"]+= stm["shuffle_write_bytes"]
@@ -203,8 +224,9 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
         totals["spill_m"]+= stm["spill_mem_bytes"]
         totals["gc"]    += stm["jvmGCTime_ms"]
 
+    # Per-job rollup
     for jid, j in jobs.items():
-        stage_keys = [(sid, att) for (sid, att) in stages.keys() if sid in j["stage_ids"]]
+        stage_keys = [(sid, att) for (sid, att) in stages_meta.keys() if sid in j["stage_ids"]]
         j["num_tasks"] = sum(stage_task_metrics[k]["tasks"] for k in stage_keys)
         j["failed_tasks"] = sum(stage_task_metrics[k]["failed_tasks"] for k in stage_keys)
         j["input_bytes"] = sum(stage_task_metrics[k]["input_bytes"] for k in stage_keys)
@@ -223,6 +245,58 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
         else:
             j["max_over_median_ratio"] = None
 
+    # Stage-level finalization (quantiles, duration, scheduler delay approx)
+    # Also compute reverse mapping: stage_id -> job_ids that include it
+    stage_to_jobs: Dict[int, List[int]] = defaultdict(list)
+    for jid, j in jobs.items():
+        for sid in j["stage_ids"]:
+            stage_to_jobs[sid].append(jid)
+
+    stages_out: List[Dict[str, Any]] = []
+    for (sid, att), meta in stages_meta.items():
+        durs = sorted(stage_task_durations.get((sid, att), []))
+        stm = stage_task_metrics[(sid, att)]
+        sub = meta.get("submission_ts")
+        comp = meta.get("completion_ts")
+
+        stage_duration_ms = int(comp - sub) if (sub and comp) else None
+        sum_task_wall_ms = int(sum(durs)) if durs else 0
+        # Scheduler delay approx at stage level (floored at 0)
+        accounted = (stm["executorRunTime_ms"] + stm["jvmGCTime_ms"] +
+                     stm["resultSerializationTime_ms"] + stm["executorDeserializeTime_ms"] +
+                     stm["shuffleReadTime_ms"] + stm["shuffleWriteTime_ms"])
+        scheduler_delay_ms = max(0, sum_task_wall_ms - accounted)
+
+        stages_out.append({
+            "stage_id": sid,
+            "attempt": att,
+            "name": meta.get("name"),
+            "job_ids": sorted(stage_to_jobs.get(sid, [])),
+            "submission_ts": sub,
+            "completion_ts": comp,
+            "stage_duration_ms": stage_duration_ms,
+            "num_tasks": int(meta.get("num_tasks") or 0),
+            "failed_tasks": stm["failed_tasks"],
+            "p50_task_duration_ms": pct(durs, 0.50),
+            "p95_task_duration_ms": pct(durs, 0.95),
+            "p99_task_duration_ms": pct(durs, 0.99),
+            "sum_task_wall_time_ms": sum_task_wall_ms,
+            "executorRunTime_ms": stm["executorRunTime_ms"],
+            "jvmGCTime_ms": stm["jvmGCTime_ms"],
+            "resultSerializationTime_ms": stm["resultSerializationTime_ms"],
+            "executorDeserializeTime_ms": stm["executorDeserializeTime_ms"],
+            "shuffleReadTime_ms": stm["shuffleReadTime_ms"],
+            "shuffleWriteTime_ms": stm["shuffleWriteTime_ms"],
+            "scheduler_delay_approx_ms": scheduler_delay_ms,
+            "input_bytes": stm["input_bytes"],
+            "records_read": stm["records_read"],
+            "shuffle_read_bytes": stm["shuffle_read_bytes"],
+            "shuffle_write_bytes": stm["shuffle_write_bytes"],
+            "spill_disk_bytes": stm["spill_disk_bytes"],
+            "spill_mem_bytes": stm["spill_mem_bytes"],
+        })
+
+    # App metrics
     app_duration_ms = (int(app["app_end_ts"] - app["app_start_ts"])
                        if app.get("app_start_ts") and app.get("app_end_ts") else None)
     app_metrics = {
@@ -244,6 +318,7 @@ def parse_event_log(text_stream: io.TextIOBase) -> Dict[str, Any]:
     return {
         "app": app_metrics,
         "jobs": jobs,
+        "stages": stages_out,            # NEW: stage-level summaries
         "executors": executors,
         "spark_props": spark_props,
         "task_time_total_ms": task_time_total_ms,
@@ -323,8 +398,11 @@ def main():
                 "spark_executor_cores": parsed["spark_props"].get("spark.executor.cores"),
                 "spark_executor_memoryOverhead": parsed["spark_props"].get("spark.executor.memoryOverhead"),
             },
-            "jobs": []
+            "jobs": [],
+            "stages": []   # NEW
         }
+
+        # jobs
         for jid, j in sorted(parsed["jobs"].items(), key=lambda kv: kv[0]):
             vsec, msec = job_alloc.get(jid, (0.0, 0.0))
             out["jobs"].append({
@@ -344,6 +422,12 @@ def main():
                 "job_vcore_seconds": vsec,
                 "job_memory_gb_seconds": msec
             })
+
+        # stages (sorted by stage_duration_ms desc; None at the end)
+        def _stage_sort_key(s):
+            return (-1 if s["stage_duration_ms"] is None else -s["stage_duration_ms"], s["stage_id"], s["attempt"])
+
+        out["stages"] = sorted(parsed["stages"], key=_stage_sort_key)
 
         print(json.dumps(out, indent=2))
 
